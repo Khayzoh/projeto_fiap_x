@@ -1,0 +1,148 @@
+name: CD
+
+on:
+  push:
+    branches: [homologation, production]
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Ambiente de destino
+        required: true
+        default: homologation
+        type: choice
+        options: [homologation, production]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ---------------------------------------------------------------------------
+  imagens:
+    name: Build e publicacao das imagens
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+
+    strategy:
+      matrix:
+        include:
+          - servico: api
+            contexto: ./api
+            dockerfile: ./api/docker/php/Dockerfile.prod
+          - servico: worker
+            contexto: ./worker
+            dockerfile: ./worker/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        name: Definir tag da imagem
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build e push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.contexto }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.servico }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.servico }}:${{ github.ref_name }}
+          # Cache entre execucoes: sem isso cada build recompila tudo do zero.
+          cache-from: type=gha,scope=${{ matrix.servico }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.servico }}
+
+      - name: Varredura da imagem publicada
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.servico }}:${{ steps.meta.outputs.tag }}
+          severity: CRITICAL
+          exit-code: "0"
+
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy no Kubernetes
+    runs-on: ubuntu-latest
+    needs: imagens
+    environment: ${{ github.event.inputs.ambiente || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar acesso ao cluster
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Aplicar namespace e configuracao
+        run: |
+          kubectl apply -f k8s/00-namespace.yaml
+
+          # O Secret nunca vem do repositorio: e montado a partir dos
+          # segredos do ambiente no GitHub.
+          kubectl create secret generic fiapx-secret -n fiapx \
+            --from-literal=APP_KEY="${{ secrets.APP_KEY }}" \
+            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --from-literal=DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=RABBITMQ_PASSWORD="${{ secrets.RABBITMQ_PASSWORD }}" \
+            --from-literal=STORAGE_ACCESS_KEY="${{ secrets.STORAGE_ACCESS_KEY }}" \
+            --from-literal=STORAGE_SECRET_KEY="${{ secrets.STORAGE_SECRET_KEY }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # Aplica apenas o ConfigMap do arquivo, preservando o Secret acima.
+          kubectl apply -f k8s/01-config.yaml \
+            --prune-allowlist=core/v1/ConfigMap --selector='' || true
+
+      - name: Aplicar infraestrutura
+        run: kubectl apply -f k8s/10-infra.yaml
+
+      - name: Aplicar workloads
+        run: |
+          TAG="${{ needs.imagens.outputs.tag }}"
+          REPO="${{ env.REGISTRY }}/${{ github.repository }}"
+
+          kubectl apply -f k8s/20-api.yaml
+          kubectl apply -f k8s/21-worker.yaml
+          kubectl apply -f k8s/30-hpa-ingress.yaml
+
+          kubectl set image deployment/fiapx-api \
+            php="${REPO}/api:${TAG}" -n fiapx
+          kubectl set image deployment/fiapx-status-consumer \
+            consumer="${REPO}/api:${TAG}" -n fiapx
+          kubectl set image deployment/fiapx-worker \
+            worker="${REPO}/worker:${TAG}" -n fiapx
+
+      - name: Executar migrations
+        run: |
+          kubectl delete job fiapx-migrate -n fiapx --ignore-not-found
+          kubectl apply -f k8s/20-api.yaml
+          kubectl wait --for=condition=complete job/fiapx-migrate -n fiapx --timeout=5m
+
+      - name: Aguardar o rollout
+        run: |
+          for deploy in fiapx-api fiapx-worker fiapx-status-consumer; do
+            kubectl rollout status "deployment/${deploy}" -n fiapx --timeout=5m
+          done
+
+      - name: Reverter em caso de falha
+        if: failure()
+        run: |
+          for deploy in fiapx-api fiapx-worker fiapx-status-consumer; do
+            kubectl rollout undo "deployment/${deploy}" -n fiapx || true
+          done
+          echo "::error::Deploy revertido para a revisao anterior"

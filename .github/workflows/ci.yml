@@ -1,0 +1,221 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, homologation, production]
+
+# Um push novo cancela a execucao anterior do mesmo branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.23"
+  PHP_VERSION: "8.4"
+  COVERAGE_MIN: "80"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  worker:
+    name: Worker Go - lint, testes e cobertura
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: worker/go.sum
+
+      # Os testes do extrator geram videos sinteticos com o proprio ffmpeg.
+      - name: Instalar ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Verificar formatacao
+        run: |
+          nao_formatados=$(gofmt -l .)
+          if [ -n "$nao_formatados" ]; then
+            echo "Arquivos fora do padrao gofmt:"
+            echo "$nao_formatados"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Testes com cobertura
+        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
+
+      # O gate cobre dominio, caso de uso, configuracao e o adaptador de video.
+      # Os adaptadores de RabbitMQ e MinIO exigem broker e storage reais e sao
+      # exercitados nos testes de integracao do ambiente completo.
+      - name: Gate de cobertura (>= 80% nos pacotes de negocio)
+        run: |
+          go test ./internal/domain/... ./internal/usecase/... \
+                  ./internal/config/... ./internal/adapter/video/... \
+                  -coverprofile=negocio.out
+          total=$(go tool cover -func=negocio.out | tail -1 | awk '{print substr($3, 1, length($3)-1)}')
+          echo "Cobertura dos pacotes de negocio: ${total}%"
+          if awk "BEGIN {exit !($total < ${COVERAGE_MIN})}"; then
+            echo "::error::Cobertura ${total}% abaixo do minimo de ${COVERAGE_MIN}%"
+            exit 1
+          fi
+
+      - name: Relatorio de cobertura (HTML)
+        run: go tool cover -html=coverage.out -o coverage.html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker-coverage
+          path: |
+            worker/coverage.out
+            worker/coverage.html
+
+      - name: Compilar binario
+        run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /tmp/worker ./cmd/worker
+
+  # ---------------------------------------------------------------------------
+  api:
+    name: API Laravel - lint, testes e cobertura
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: pdo_sqlite, sqlite3, mbstring, bcmath, zip, sockets, pcntl, intl
+          coverage: pcov
+
+      - name: Cache do Composer
+        uses: actions/cache@v4
+        with:
+          path: api/vendor
+          key: vendor-${{ hashFiles('api/composer.lock') }}
+          restore-keys: vendor-
+
+      - name: Instalar dependencias
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Verificar estilo de codigo
+        run: vendor/bin/pint --test
+
+      - name: Testes com cobertura
+        run: vendor/bin/phpunit --coverage-clover coverage.xml --log-junit junit.xml
+
+      - name: Gate de cobertura (>= 80% de linhas)
+        run: |
+          php -r '
+            $xml = simplexml_load_file("coverage.xml");
+            $m = $xml->project->metrics;
+            $cobertura = ($m["statements"] > 0)
+              ? round(($m["coveredstatements"] / $m["statements"]) * 100, 2)
+              : 0;
+            echo "Cobertura de linhas: {$cobertura}%\n";
+            if ($cobertura < (float) getenv("COVERAGE_MIN")) {
+              fwrite(STDERR, "Cobertura abaixo do minimo de " . getenv("COVERAGE_MIN") . "%\n");
+              exit(1);
+            }
+          '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage
+          path: |
+            api/coverage.xml
+            api/junit.xml
+
+  # ---------------------------------------------------------------------------
+  integracao:
+    name: Teste de integracao ponta a ponta
+    runs-on: ubuntu-latest
+    needs: [worker, api]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar configuracao
+        run: |
+          cp .env.example .env
+          sed -i "s|APP_KEY=.*|APP_KEY=base64:$(head -c 32 /dev/urandom | base64)|" .env
+          sed -i "s|JWT_SECRET=.*|JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n')|" .env
+
+      - name: Subir a stack
+        run: docker compose up -d --build
+
+      - name: Aguardar a API responder
+        run: |
+          for tentativa in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/api/health > /dev/null 2>&1; then
+              echo "API no ar apos ${tentativa} tentativas"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::A API nao respondeu no tempo esperado"
+          docker compose logs --tail 100
+          exit 1
+
+      - name: Aplicar migrations
+        run: docker compose exec -T api php artisan migrate --force
+
+      - name: Fluxo completo (upload -> processamento -> download)
+        run: bash scripts/smoke-test.sh
+
+      - name: Logs em caso de falha
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Derrubar a stack
+        if: always()
+        run: docker compose down -v
+
+  # ---------------------------------------------------------------------------
+  manifestos:
+    name: Validar manifestos Kubernetes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar contra os schemas do Kubernetes
+        uses: docker://ghcr.io/yannh/kubeconform:latest
+        with:
+          args: -strict -summary -kubernetes-version 1.30.0 /github/workspace/k8s
+
+  # ---------------------------------------------------------------------------
+  seguranca:
+    name: Varredura de vulnerabilidades
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy no sistema de arquivos
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          # Nao bloqueia o merge: o relatorio vai para a aba Security.
+          exit-code: "0"
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Publicar resultado
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif

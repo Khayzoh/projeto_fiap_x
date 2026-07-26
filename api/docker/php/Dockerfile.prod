@@ -1,0 +1,64 @@
+# Imagem de producao da API.
+#
+# Diferencas em relacao ao Dockerfile de desenvolvimento:
+#   - sem pcov, sem composer no runtime, sem dependencias de dev;
+#   - autoloader e config do Laravel pre-compilados;
+#   - opcache com validate_timestamps desligado.
+
+FROM composer:2 AS vendor
+
+WORKDIR /app
+COPY composer.json composer.lock ./
+# --no-scripts aqui porque o codigo da aplicacao ainda nao foi copiado.
+RUN composer install --no-dev --no-interaction --prefer-dist --no-progress --no-scripts --no-autoloader
+
+COPY . .
+RUN composer dump-autoload --no-dev --optimize --classmap-authoritative
+
+
+FROM php:8.4-fpm-alpine
+
+RUN apk add --no-cache \
+        postgresql-dev \
+        libzip-dev \
+        linux-headers \
+        $PHPIZE_DEPS \
+    && docker-php-ext-install -j"$(nproc)" \
+        pdo_pgsql \
+        pgsql \
+        bcmath \
+        sockets \
+        zip \
+        pcntl \
+        opcache \
+    && apk del $PHPIZE_DEPS \
+    && rm -rf /tmp/pear
+
+# Em producao o codigo nao muda em runtime: revalidar timestamps a cada
+# requisicao seria custo puro.
+RUN { \
+        echo 'opcache.enable=1'; \
+        echo 'opcache.validate_timestamps=0'; \
+        echo 'opcache.max_accelerated_files=20000'; \
+        echo 'opcache.memory_consumption=192'; \
+        echo 'opcache.interned_strings_buffer=16'; \
+    } > /usr/local/etc/php/conf.d/opcache.ini \
+    && { \
+        echo 'upload_max_filesize=512M'; \
+        echo 'post_max_size=512M'; \
+        echo 'memory_limit=256M'; \
+    } > /usr/local/etc/php/conf.d/uploads.ini
+
+WORKDIR /var/www/html
+
+RUN addgroup -g 1000 -S fiapx && adduser -u 1000 -S -G fiapx fiapx
+
+COPY --from=vendor --chown=fiapx:fiapx /app /var/www/html
+
+RUN chown -R fiapx:fiapx storage bootstrap/cache
+
+USER fiapx
+
+EXPOSE 9000
+
+CMD ["php-fpm"]

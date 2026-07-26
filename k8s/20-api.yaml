@@ -1,0 +1,121 @@
+# API: php-fpm + nginx no mesmo pod.
+#
+# O nginx precisa enxergar os arquivos de public/ e falar com o php-fpm.
+# Mante-los no mesmo pod evita duplicar a imagem da aplicacao e elimina
+# um salto de rede por requisicao.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: fiapx-api
+  namespace: fiapx
+  labels:
+    app: fiapx-api
+spec:
+  selector: { app: fiapx-api }
+  ports:
+    - { name: http, port: 80, targetPort: 80 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fiapx-api
+  namespace: fiapx
+  labels:
+    app: fiapx-api
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels: { app: fiapx-api }
+  template:
+    metadata:
+      labels: { app: fiapx-api }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: /api/metrics
+    spec:
+      containers:
+        - name: php
+          image: fiapx/api:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 9000 }]
+          envFrom:
+            - configMapRef: { name: fiapx-config }
+            - secretRef: { name: fiapx-secret }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 512Mi }
+
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 80 }]
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+            - name: app-public
+              mountPath: /var/www/html/public
+          # Liveness sem dependencias: um banco fora do ar nao deve
+          # reiniciar o pod em loop.
+          livenessProbe:
+            httpGet: { path: /api/health, port: 80 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          # Readiness checa as dependencias: o pod sai do balanceador
+          # enquanto nao conseguir atender de verdade.
+          readinessProbe:
+            httpGet: { path: /api/ready, port: 80 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 300m, memory: 128Mi }
+
+      initContainers:
+        # Copia public/ da imagem da aplicacao para o volume compartilhado
+        # com o nginx, que nao possui o codigo.
+        - name: copy-public
+          image: fiapx/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "cp -R /var/www/html/public/. /public-share/"]
+          volumeMounts:
+            - name: app-public
+              mountPath: /public-share
+
+      volumes:
+        - name: nginx-config
+          configMap: { name: fiapx-nginx-config }
+        - name: app-public
+          emptyDir: {}
+
+---
+# Migrations rodam como Job, nunca no start do pod: com 2 replicas,
+# duas instancias tentariam migrar ao mesmo tempo.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fiapx-migrate
+  namespace: fiapx
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: fiapx/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["php", "artisan", "migrate", "--force"]
+          envFrom:
+            - configMapRef: { name: fiapx-config }
+            - secretRef: { name: fiapx-secret }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }

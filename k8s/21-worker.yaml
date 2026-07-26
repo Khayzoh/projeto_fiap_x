@@ -1,0 +1,104 @@
+# Worker de processamento de video (Go + ffmpeg) e consumidor de status da API.
+#
+# Sao deployments separados da API porque escalam por criterios diferentes:
+# a API escala com o trafego HTTP, o worker com o tamanho da fila.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: fiapx-worker
+  namespace: fiapx
+  labels:
+    app: fiapx-worker
+spec:
+  # Headless: o Prometheus descobre cada replica individualmente para
+  # coletar metricas de todas, e nao de uma sorteada pelo balanceador.
+  clusterIP: None
+  selector: { app: fiapx-worker }
+  ports:
+    - { name: metrics, port: 9100, targetPort: 9100 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fiapx-worker
+  namespace: fiapx
+  labels:
+    app: fiapx-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: fiapx-worker }
+  template:
+    metadata:
+      labels: { app: fiapx-worker }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+    spec:
+      # ffmpeg pode estar no meio de um video quando o pod recebe SIGTERM.
+      # A janela permite terminar o job em andamento antes do SIGKILL; o
+      # consumo usa ack manual, entao nada se perde mesmo se estourar.
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: worker
+          image: fiapx/worker:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 9100, name: metrics }]
+          env:
+            - name: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          envFrom:
+            - configMapRef: { name: fiapx-config }
+            - secretRef: { name: fiapx-secret }
+          livenessProbe:
+            httpGet: { path: /health, port: 9100 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /health, port: 9100 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            # Area de trabalho dos jobs. emptyDir e suficiente: nada
+            # precisa sobreviver ao pod, o resultado vai para o storage.
+            - { name: workdir, mountPath: /tmp/fiapx }
+          resources:
+            # ffmpeg e intensivo em CPU: a request precisa refletir isso
+            # para o HPA e o scheduler tomarem decisoes corretas.
+            requests: { cpu: 500m, memory: 512Mi }
+            limits: { cpu: "2", memory: 2Gi }
+      volumes:
+        - name: workdir
+          emptyDir: { sizeLimit: 10Gi }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fiapx-status-consumer
+  namespace: fiapx
+  labels:
+    app: fiapx-status-consumer
+spec:
+  # Consumo leve e sequencial: uma replica basta e evita concorrencia
+  # desnecessaria na atualizacao do mesmo video.
+  replicas: 1
+  selector:
+    matchLabels: { app: fiapx-status-consumer }
+  template:
+    metadata:
+      labels: { app: fiapx-status-consumer }
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: consumer
+          image: fiapx/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["php", "artisan", "fiapx:consume-status"]
+          envFrom:
+            - configMapRef: { name: fiapx-config }
+            - secretRef: { name: fiapx-secret }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }

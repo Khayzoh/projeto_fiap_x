@@ -1,0 +1,347 @@
+openapi: 3.0.3
+
+info:
+  title: FIAP X — API de Processamento de Vídeos
+  description: |
+    Recebe vídeos, extrai os frames de forma assíncrona e disponibiliza o
+    resultado como um arquivo ZIP.
+
+    O upload responde `202 Accepted` imediatamente: o processamento acontece
+    em segundo plano. Acompanhe o andamento por `GET /videos` até que o status
+    seja `COMPLETED`, e então solicite o link de download.
+  version: 1.0.0
+  contact:
+    name: POSTECH 13SOAT — Fase 5
+
+servers:
+  - url: http://localhost:8080/api
+    description: Ambiente local (Docker Compose)
+
+tags:
+  - name: Autenticação
+  - name: Vídeos
+  - name: Operação
+
+paths:
+  /auth/register:
+    post:
+      tags: [Autenticação]
+      summary: Cria uma conta e devolve o token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password, password_confirmation]
+              properties:
+                name: { type: string, maxLength: 255, example: Kaue Ruiz }
+                email: { type: string, format: email, example: kaue@fiapx.test }
+                password:
+                  type: string
+                  format: password
+                  description: Mínimo de 8 caracteres, com letras e números.
+                  example: senhaSegura1
+                password_confirmation: { type: string, format: password, example: senhaSegura1 }
+      responses:
+        "201":
+          description: Conta criada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RespostaAutenticacao" }
+        "422":
+          $ref: "#/components/responses/ErroValidacao"
+
+  /auth/login:
+    post:
+      tags: [Autenticação]
+      summary: Autentica por e-mail e senha
+      description: Limitado a 5 requisições por minuto.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: kaue@fiapx.test }
+                password: { type: string, format: password, example: senhaSegura1 }
+      responses:
+        "200":
+          description: Autenticado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RespostaAutenticacao" }
+        "401":
+          $ref: "#/components/responses/NaoAutorizado"
+        "429":
+          description: Excesso de tentativas
+
+  /auth/me:
+    get:
+      tags: [Autenticação]
+      summary: Dados do usuário autenticado
+      responses:
+        "200":
+          description: Usuário do token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/Usuario" }
+        "401":
+          $ref: "#/components/responses/NaoAutorizado"
+
+  /videos:
+    get:
+      tags: [Vídeos]
+      summary: Lista os vídeos do usuário
+      description: Ordenados do mais recente para o mais antigo. Traz apenas os vídeos do dono do token.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, PROCESSING, COMPLETED, FAILED]
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 15 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+      responses:
+        "200":
+          description: Página de vídeos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Video" }
+                  links: { type: object }
+                  meta: { type: object }
+        "401":
+          $ref: "#/components/responses/NaoAutorizado"
+        "422":
+          $ref: "#/components/responses/ErroValidacao"
+
+    post:
+      tags: [Vídeos]
+      summary: Envia um vídeo para processamento
+      description: |
+        Responde imediatamente com `202`. O vídeo entra na fila com status
+        `PENDING`; o processamento acontece de forma assíncrona.
+
+        Formatos aceitos: mp4, avi, mov, mkv, wmv, flv, webm. Limite de 500 MB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [video]
+              properties:
+                video: { type: string, format: binary }
+      responses:
+        "202":
+          description: Vídeo aceito e enfileirado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Video" }
+        "401":
+          $ref: "#/components/responses/NaoAutorizado"
+        "422":
+          $ref: "#/components/responses/ErroValidacao"
+
+  /videos/{id}:
+    get:
+      tags: [Vídeos]
+      summary: Detalhe de um vídeo
+      parameters:
+        - $ref: "#/components/parameters/VideoId"
+      responses:
+        "200":
+          description: Dados do vídeo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Video" }
+        "401":
+          $ref: "#/components/responses/NaoAutorizado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+
+  /videos/{id}/download:
+    get:
+      tags: [Vídeos]
+      summary: Link de download do ZIP
+      description: |
+        Devolve uma URL assinada com validade de 15 minutos, apontando direto
+        para o storage de objetos. O download não passa pela API.
+      parameters:
+        - $ref: "#/components/parameters/VideoId"
+      responses:
+        "200":
+          description: Link gerado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  download_url: { type: string, format: uri }
+                  expires_in: { type: integer, example: 900, description: Validade em segundos }
+        "401":
+          $ref: "#/components/responses/NaoAutorizado"
+        "404":
+          $ref: "#/components/responses/NaoEncontrado"
+        "409":
+          description: O ZIP ainda não está disponível
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: O ZIP ainda nao esta disponivel. }
+                  status: { type: string, example: PROCESSING }
+
+  /health:
+    get:
+      tags: [Operação]
+      summary: Liveness — não consulta dependências
+      security: []
+      responses:
+        "200":
+          description: Serviço no ar
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  service: { type: string, example: fiapx-api }
+                  time: { type: string, format: date-time }
+
+  /ready:
+    get:
+      tags: [Operação]
+      summary: Readiness — verifica PostgreSQL e Redis
+      security: []
+      responses:
+        "200": { description: Pronto para receber tráfego }
+        "503": { description: Alguma dependência está indisponível }
+
+  /metrics:
+    get:
+      tags: [Operação]
+      summary: Métricas no formato do Prometheus
+      security: []
+      responses:
+        "200":
+          description: Métricas de negócio
+          content:
+            text/plain:
+              schema: { type: string }
+
+components:
+  securitySchemes:
+    BearerJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    VideoId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    Usuario:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        name: { type: string, example: Kaue Ruiz }
+        email: { type: string, format: email, example: kaue@fiapx.test }
+
+    RespostaAutenticacao:
+      type: object
+      properties:
+        user: { $ref: "#/components/schemas/Usuario" }
+        token: { type: string, description: JWT assinado em HS256 }
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, example: 7200, description: Validade em segundos }
+
+    Video:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        filename: { type: string, example: ferias.mp4 }
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, COMPLETED, FAILED]
+        size_bytes: { type: integer, example: 15728640 }
+        frame_count:
+          type: integer
+          nullable: true
+          description: Número de frames extraídos; nulo enquanto não concluir.
+          example: 120
+        zip_size_bytes: { type: integer, nullable: true, example: 4500000 }
+        attempts: { type: integer, example: 0 }
+        error_message: { type: string, nullable: true }
+        in_progress: { type: boolean }
+        downloadable: { type: boolean }
+        download_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Presente apenas quando o ZIP está disponível.
+        created_at: { type: string, format: date-time }
+        processed_at: { type: string, format: date-time, nullable: true }
+
+  responses:
+    NaoAutorizado:
+      description: Token ausente, inválido ou expirado
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string, example: Token invalido ou expirado. }
+
+    NaoEncontrado:
+      description: Recurso inexistente ou pertencente a outro usuário
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+
+    ErroValidacao:
+      description: Dados inválidos
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }
+
+security:
+  - BearerJWT: []

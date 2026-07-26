@@ -1,0 +1,104 @@
+# Escalabilidade automatica e entrada HTTP.
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fiapx-api
+  namespace: fiapx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fiapx-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+    - type: Resource
+      resource:
+        name: memory
+        target: { type: Utilization, averageUtilization: 80 }
+  behavior:
+    scaleUp:
+      # Reage rapido a pico de upload.
+      stabilizationWindowSeconds: 30
+      policies:
+        - { type: Percent, value: 100, periodSeconds: 30 }
+    scaleDown:
+      # Desce devagar para nao derrubar capacidade durante uma trégua curta.
+      stabilizationWindowSeconds: 300
+      policies:
+        - { type: Percent, value: 50, periodSeconds: 60 }
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fiapx-worker
+  namespace: fiapx
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fiapx-worker
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    # CPU e o melhor sinal disponivel sem metricas customizadas: o ffmpeg
+    # satura o processador enquanto ha video na fila.
+    #
+    # Evolucao natural: KEDA com o tamanho da fila video.processing como
+    # gatilho, que reage antes da CPU subir.
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 65 }
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 15
+      policies:
+        - { type: Pods, value: 4, periodSeconds: 30 }
+    scaleDown:
+      # Janela longa: derrubar um pod no meio de um ffmpeg custa
+      # reprocessar o video inteiro.
+      stabilizationWindowSeconds: 600
+      policies:
+        - { type: Pods, value: 1, periodSeconds: 120 }
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fiapx
+  namespace: fiapx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: fiapx.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fiapx-api
+                port: { number: 80 }
+
+---
+# Garante que uma atualizacao de no nunca derrube a API por completo.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fiapx-api
+  namespace: fiapx
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: fiapx-api }

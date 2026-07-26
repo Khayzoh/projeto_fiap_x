@@ -1,0 +1,54 @@
+# Segredos e configuracao de ambiente
+.env
+.env.*
+!.env.example
+api/.env
+api/.env.*
+!api/.env.testing
+
+# Dependencias
+/api/vendor/
+/api/node_modules/
+
+# Artefatos de build e execucao do Laravel
+/api/public/build/
+/api/public/hot
+/api/public/storage
+/api/storage/*.key
+/api/storage/framework/cache/*
+/api/storage/framework/sessions/*
+/api/storage/framework/views/*
+/api/storage/logs/*
+/api/bootstrap/cache/*.php
+!/api/storage/framework/cache/.gitignore
+
+# Relatorios de teste e cobertura
+coverage.xml
+coverage.out
+coverage.html
+junit.xml
+/api/.phpunit.cache/
+/api/coverage-html/
+negocio.out
+
+# Artefatos do teste de fumaca
+.smoke-tmp/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Sistema operacional e editores
+.DS_Store
+Thumbs.db
+__MACOSX/
+.idea/
+.vscode/
+*.swp
+
+# Binarios compilados do worker
+/worker/worker
+/worker/worker.exe
