@@ -77,10 +77,13 @@ class VideoController extends Controller
             ], Response::HTTP_CONFLICT);
         }
 
+        // JSON_UNESCAPED_SLASHES mantem a URL legivel ("http://" em vez de
+        // "http:\/\/"). Sem isso, clientes que extraem o campo sem um parser
+        // de JSON completo acabam tentando baixar de um endereco invalido.
         return response()->json([
             'download_url' => $this->videos->downloadUrl($video),
             'expires_in' => (int) config('fiapx.storage.download_ttl_minutes') * 60,
-        ]);
+        ], Response::HTTP_OK, [], JSON_UNESCAPED_SLASHES);
     }
 
     /**

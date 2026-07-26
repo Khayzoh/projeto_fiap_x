@@ -94,8 +94,11 @@ passo "7/8 Baixando o ZIP dos frames"
 VIDEO_ID=$(curl -fsS "${BASE_URL}/videos?status=COMPLETED" \
     -H "Authorization: Bearer ${TOKEN}" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
+# A API devolve a URL sem escapar as barras; o tr remove qualquer barra
+# invertida residual. Usamos o octal \134 em vez de '\\' porque o segundo
+# gera aviso de portabilidade e sofre conversao de caminho no Git Bash.
 URL=$(curl -fsS "${BASE_URL}/videos/${VIDEO_ID}/download" \
-    -H "Authorization: Bearer ${TOKEN}" | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | sed 's|\\/|/|g')
+    -H "Authorization: Bearer ${TOKEN}" | grep -o '"download_url":"[^"]*"' | cut -d'"' -f4 | tr -d '\134')
 
 curl -fsS "$URL" -o "${TMP_DIR}/frames.zip" || falhar "download do ZIP falhou"
 unzip -tq "${TMP_DIR}/frames.zip" > /dev/null || falhar "ZIP baixado esta corrompido"

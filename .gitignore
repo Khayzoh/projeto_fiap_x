@@ -52,3 +52,7 @@ __MACOSX/
 # Binarios compilados do worker
 /worker/worker
 /worker/worker.exe
+
+# Arquivos gerados para a demonstracao
+demo/
+.token
