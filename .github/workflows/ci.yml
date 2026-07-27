@@ -164,6 +164,15 @@ jobs:
       - name: Construir as imagens
         run: docker compose build api worker
 
+      # O compose monta ./api sobre /var/www/html, encobrindo o vendor/ que o
+      # Dockerfile instalou na imagem. No runner o diretorio nao existe — nao e
+      # versionado — e sem este passo a API sobe e responde 500 no autoload.
+      - name: Instalar as dependencias da API no volume
+        run: |
+          docker compose run --rm --no-deps api \
+            composer install --no-interaction --prefer-dist --no-progress
+          test -f api/vendor/autoload.php
+
       - name: Subir os servicos
         run: |
           docker compose up -d \

@@ -18,7 +18,7 @@ aviso()  { echo "    !  $*"; }
 falhar() { echo "    FALHOU: $*" >&2; exit 1; }
 
 # -----------------------------------------------------------------------------
-passo "1/5 Verificando os pré-requisitos"
+passo "1/7 Verificando os pré-requisitos"
 
 command -v docker > /dev/null || falhar "Docker não encontrado. Instale o Docker Desktop e tente de novo."
 docker compose version > /dev/null 2>&1 || falhar "Docker Compose v2 não encontrado."
@@ -26,7 +26,7 @@ docker info > /dev/null 2>&1 || falhar "O Docker está instalado mas não está 
 ok "Docker em execução"
 
 # -----------------------------------------------------------------------------
-passo "2/5 Preparando a configuração"
+passo "2/7 Preparando a configuração"
 
 if [ -f .env ]; then
     aviso ".env já existe — mantido como está"
@@ -48,15 +48,37 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-passo "3/5 Construindo e subindo os containers"
+passo "3/7 Construindo as imagens"
 echo "    (a primeira execução baixa as imagens e compila o worker; pode levar alguns minutos)"
 
-docker compose up -d --build
+docker compose build
+
+ok "imagens construídas"
+
+# -----------------------------------------------------------------------------
+passo "4/7 Instalando as dependências da API"
+
+# O Dockerfile roda composer install durante o build, mas o compose monta ./api
+# sobre /var/www/html e o vendor/ da imagem fica encoberto pelo diretório do
+# host — que num clone novo não existe, já que vendor/ não é versionado. Sem
+# este passo a API sobe e responde 500 no autoload.
+if [ -f api/vendor/autoload.php ]; then
+    aviso "dependências já instaladas — pulando"
+else
+    docker compose run --rm --no-deps api \
+        composer install --no-interaction --prefer-dist --no-progress
+    ok "dependências instaladas em api/vendor"
+fi
+
+# -----------------------------------------------------------------------------
+passo "5/7 Subindo os containers"
+
+docker compose up -d
 
 ok "containers no ar"
 
 # -----------------------------------------------------------------------------
-passo "4/5 Aguardando as dependências"
+passo "6/7 Aguardando as dependências"
 
 for tentativa in $(seq 1 60); do
     if docker compose exec -T postgres pg_isready -U fiapx -d fiapx > /dev/null 2>&1; then
@@ -80,7 +102,7 @@ for tentativa in $(seq 1 60); do
 done
 
 # -----------------------------------------------------------------------------
-passo "5/5 Criando as tabelas"
+passo "7/7 Criando as tabelas"
 
 docker compose exec -T api php artisan migrate --force > /dev/null
 ok "migrations aplicadas"
