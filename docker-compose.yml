@@ -152,6 +152,11 @@ services:
     env_file: [.env]
     environment:
       CONTAINER_ROLE: consumer
+    # Mesmo volume da API: sem ele o consumidor roda o código congelado na
+    # imagem, e uma alteração passa a exigir rebuild — silenciosamente, porque
+    # o processo sobe normalmente com a versão antiga.
+    volumes:
+      - ./api:/var/www/html
     command: php artisan fiapx:consume-status
     restart: unless-stopped
     depends_on:

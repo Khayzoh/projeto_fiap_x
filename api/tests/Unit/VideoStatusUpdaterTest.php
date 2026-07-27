@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit;
 
+use App\Mail\VideoProcessedMail;
 use App\Mail\VideoProcessingFailedMail;
 use App\Models\User;
 use App\Models\Video;
@@ -72,6 +73,23 @@ class VideoStatusUpdaterTest extends TestCase
         });
     }
 
+    public function test_conclusao_notifica_o_dono(): void
+    {
+        $user = User::factory()->create(['email' => 'dono@fiapx.test']);
+        $video = Video::factory()->processing()->create(['user_id' => $user->id]);
+
+        $this->updater->markCompleted([
+            'video_id' => $video->id,
+            'zip_object_key' => "outputs/{$video->id}/frames.zip",
+            'frame_count' => 42,
+        ]);
+
+        Mail::assertSent(VideoProcessedMail::class, function ($mail) use ($user) {
+            return $mail->hasTo($user->email);
+        });
+        Mail::assertNotSent(VideoProcessingFailedMail::class);
+    }
+
     public function test_reentrega_de_conclusao_nao_duplica_efeito(): void
     {
         $video = Video::factory()->completed()->create(['frame_count' => 99]);
@@ -84,6 +102,8 @@ class VideoStatusUpdaterTest extends TestCase
         $video->refresh();
         // O estado final ja estava gravado: a reentrega nao pode sobrescrever.
         $this->assertSame(99, $video->frame_count);
+        // Nem reenviar o aviso de conclusao.
+        Mail::assertNothingSent();
     }
 
     public function test_reentrega_de_falha_nao_reenvia_email(): void

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Mail\VideoProcessedMail;
 use App\Mail\VideoProcessingFailedMail;
 use App\Models\Video;
+use Illuminate\Mail\Mailable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -43,6 +45,8 @@ class VideoStatusUpdater
             'processed_at' => $this->parseDate($payload['processed_at'] ?? null),
         ])->save();
 
+        $this->notificar($video, new VideoProcessedMail($video));
+
         Log::info('video processado com sucesso', [
             'video_id' => $video->id,
             'frame_count' => $video->frame_count,
@@ -76,7 +80,7 @@ class VideoStatusUpdater
             'processed_at' => $this->parseDate($payload['failed_at'] ?? null),
         ])->save();
 
-        $this->notifyFailure($video);
+        $this->notificar($video, new VideoProcessingFailedMail($video));
 
         Log::error('falha no processamento de video', [
             'video_id' => $video->id,
@@ -89,12 +93,13 @@ class VideoStatusUpdater
     }
 
     /**
-     * Envia o e-mail de falha.
+     * Envia uma notificacao ao dono do video.
      *
-     * Uma falha no envio nao pode derrubar o consumo: o status ja foi gravado,
-     * e reprocessar a mensagem so geraria e-mail duplicado.
+     * Uma falha no envio nao pode derrubar o consumo: o status ja foi gravado, e
+     * reenfileirar a mensagem so geraria e-mail duplicado. O envio e o unico
+     * efeito colateral que aceita falhar em silencio — registrado no log.
      */
-    private function notifyFailure(Video $video): void
+    private function notificar(Video $video, Mailable $mensagem): void
     {
         $usuario = $video->user;
 
@@ -103,10 +108,11 @@ class VideoStatusUpdater
         }
 
         try {
-            Mail::to($usuario->email)->send(new VideoProcessingFailedMail($video));
+            Mail::to($usuario->email)->send($mensagem);
         } catch (\Throwable $e) {
-            Log::error('nao foi possivel enviar a notificacao de falha', [
+            Log::error('nao foi possivel enviar a notificacao', [
                 'video_id' => $video->id,
+                'status' => $video->status,
                 'error' => $e->getMessage(),
             ]);
         }
