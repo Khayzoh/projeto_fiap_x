@@ -23,6 +23,24 @@ RUN apk add --no-cache \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+# Limites de upload. Sem isto valem os padrões do PHP — post_max_size de 8M e
+# upload_max_filesize de 2M — e qualquer vídeo real é recusado antes mesmo de
+# chegar à aplicação, com um warning solto no corpo da resposta.
+#
+# post_max_size fica acima de upload_max_filesize para acomodar o overhead das
+# fronteiras do multipart, e os dois abaixo do client_max_body_size do nginx.
+RUN { \
+        echo 'upload_max_filesize=512M'; \
+        echo 'post_max_size=520M'; \
+        echo 'memory_limit=256M'; \
+        echo 'max_execution_time=300'; \
+        echo 'max_input_time=300'; \
+        # A saída desta API é JSON: um warning impresso no corpo quebra o
+        # parser do cliente. Erros vão para o log; quem os exibe é o Laravel.
+        echo 'display_errors=Off'; \
+        echo 'log_errors=On'; \
+    } > /usr/local/etc/php/conf.d/zz-fiapx.ini
+
 WORKDIR /var/www/html
 
 # Usuario nao-root com o mesmo uid do php-fpm padrao, evitando arquivos

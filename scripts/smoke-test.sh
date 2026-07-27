@@ -32,6 +32,25 @@ curl -fsS "${BASE_URL}/health" > /dev/null || falhar "a API nao respondeu"
 ok "API no ar"
 
 # -----------------------------------------------------------------------------
+passo "1b/8 Conferindo os limites de upload do PHP"
+# Os padroes do PHP (post_max_size 8M, upload_max_filesize 2M) recusam
+# qualquer video real antes de a requisicao chegar a aplicacao. Verificar aqui
+# evita que uma mudanca no Dockerfile quebre o upload sem ninguem perceber.
+LIMITES=$(docker compose exec -T api php -r '
+    $u = ini_get("upload_max_filesize");
+    $p = ini_get("post_max_size");
+    $emKb = fn($v) => (int) $v * (str_contains(strtoupper($v), "G") ? 1048576 : (str_contains(strtoupper($v), "M") ? 1024 : 1));
+    $app = (int) (getenv("UPLOAD_MAX_SIZE_KB") ?: 512000);
+    echo ($emKb($u) >= $app && $emKb($p) >= $app) ? "ok" : "baixo";
+    echo " upload={$u} post={$p}";
+' 2>/dev/null | tr -d '\r')
+
+case "$LIMITES" in
+    ok*) ok "limites do PHP acima do maximo da aplicacao (${LIMITES#ok })" ;;
+    *)   falhar "PHP recusaria uploads grandes (${LIMITES#baixo }) — verifique api/docker/php/Dockerfile" ;;
+esac
+
+# -----------------------------------------------------------------------------
 passo "2/8 Cadastrando usuario"
 TOKEN=$(curl -fsS -X POST "${BASE_URL}/auth/register" \
     -H 'Content-Type: application/json' \
