@@ -51,7 +51,7 @@ flowchart LR
     W -->|7. video.completed / video.failed| MQ
     MQ --> C
     C -->|8. atualiza status| PG
-    C -->|9. notifica falha| ML
+    C -->|9. notifica o usuário| ML
     U -->|10. GET /download<br/>link assinado| S3
 
     API -.-> RD
@@ -76,29 +76,34 @@ Ver [ADR-002](docs/architecture/ADR-002-worker-em-go.md).
 | **Não perder requisição** em picos | Exchange e fila duráveis, mensagens persistentes, ack manual, DLQ e retentativas | [`topology.go`](worker/internal/adapter/messaging/topology.go) |
 | Proteção por **usuário e senha** | Cadastro/login com bcrypt e JWT HS256 em todas as rotas de vídeo | [`AuthController`](api/app/Http/Controllers/Api/AuthController.php) |
 | **Listagem de status** por usuário | `GET /api/videos` paginado, com filtro por status e isolamento por dono | [`VideoController`](api/app/Http/Controllers/Api/VideoController.php) |
-| **Notificação de erro** | E-mail disparado ao esgotar as tentativas | [`VideoStatusUpdater`](api/app/Services/VideoStatusUpdater.php) |
+| **Notificação** | E-mail ao concluir e ao esgotar as tentativas | [`VideoStatusUpdater`](api/app/Services/VideoStatusUpdater.php) |
 | **Persistir os dados** | PostgreSQL com o schema versionado | [`schema.sql`](database/schema.sql) |
 | Arquitetura **escalável** | Serviços sem estado, HPA de 2→20 réplicas, storage externo | [`30-hpa-ingress.yaml`](k8s/30-hpa-ingress.yaml) |
-| **Testes** de qualidade | 55 testes na API + 29 no worker, com gate de 80% no CI | [`ci.yml`](.github/workflows/ci.yml) |
-| **CI/CD** | Lint, testes, cobertura, integração ponta a ponta, build e deploy | [`.github/workflows/`](.github/workflows/) |
+| **Testes** de qualidade | 64 testes na API + 31 no worker, com gate de 80% no CI | [`ci.yml`](.github/workflows/ci.yml) |
+| **CI/CD** | Lint, testes, cobertura, integração ponta a ponta, build e deploy | [`.gitlab-ci.yml`](.gitlab-ci.yml) · [`.github/workflows/`](.github/workflows/) |
 
 Stack alinhada à recomendação do enunciado: **Docker + Kubernetes**, **RabbitMQ**,
-**PostgreSQL + Redis**, **Prometheus + Grafana** e **GitHub Actions**.
+**PostgreSQL + Redis**, **Prometheus + Grafana**, com pipeline para GitLab CI e GitHub Actions.
 
 ---
 
 ## Executando localmente
 
-Pré-requisitos: Docker e Docker Compose. Nada mais precisa estar instalado —
-Go, PHP e ffmpeg rodam dentro dos containers.
+**Único pré-requisito: Docker Desktop em execução.** Go, PHP e ffmpeg rodam
+dentro dos containers — nada mais precisa estar instalado na máquina.
 
 ```bash
-cp .env.example .env
-# Edite .env e defina APP_KEY (32 bytes em base64) e JWT_SECRET
+git clone https://gitlab.com/kaueoscar/fase_5_fiap_x.git
+cd fase_5_fiap_x
 
-docker compose up -d --build
-docker compose exec api php artisan migrate --force
+bash scripts/setup.sh
 ```
+
+O script gera as chaves da aplicação, sobe os containers, espera as dependências
+ficarem prontas e aplica as migrations. A primeira execução baixa as imagens e
+compila o worker, então leva alguns minutos; as seguintes são rápidas.
+
+Ao terminar, ele imprime os endereços:
 
 | Serviço | URL | Credenciais |
 |---|---|---|
@@ -110,15 +115,32 @@ docker compose exec api php artisan migrate --force
 | Prometheus | http://localhost:9090 | — |
 | Grafana | http://localhost:3001 | `admin` / `admin` |
 
+<details>
+<summary>Preferindo fazer manualmente</summary>
+
+```bash
+cp .env.example .env
+
+# APP_KEY precisa ter exatamente 32 bytes; uma chave inválida faz o Laravel
+# falhar com "Unsupported cipher or incorrect key length".
+sed -i "s|^APP_KEY=.*|APP_KEY=base64:$(head -c 32 /dev/urandom | base64)|" .env
+sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n')|" .env
+
+docker compose up -d --build
+docker compose exec api php artisan migrate --force
+```
+
+</details>
+
 ### Validando a instalação
 
 ```bash
 bash scripts/smoke-test.sh
 ```
 
-Exercita o fluxo completo contra a stack real: cadastro, bloqueio sem token,
-três uploads simultâneos, download do ZIP, e o caminho de erro terminando em
-`FAILED` com e-mail enviado e mensagem isolada na DLQ.
+Exercita o fluxo completo contra a stack real: limites de upload, cadastro,
+bloqueio sem token, três uploads simultâneos, download do ZIP, e o caminho de
+erro terminando em `FAILED` com e-mail enviado e mensagem isolada na DLQ.
 
 ### Demonstrando o processamento paralelo
 
@@ -128,6 +150,16 @@ docker compose up -d --scale worker=3
 
 As réplicas dividem a fila automaticamente — o RabbitMQ entrega no máximo
 `WORKER_PREFETCH` mensagens não confirmadas por consumidor.
+
+### Comandos do dia a dia
+
+| | |
+|---|---|
+| Ver o que está de pé | `docker compose ps` |
+| Acompanhar o processamento | `docker compose logs -f worker` |
+| Pausar (mantém os dados) | `docker compose stop` |
+| Retomar | `docker compose up -d` |
+| Apagar tudo e recomeçar | `docker compose down -v && bash scripts/setup.sh` |
 
 ---
 
@@ -198,10 +230,10 @@ do repositório — o `01-config.yaml` traz apenas um modelo para uso local.
 ## Testes
 
 ```bash
-# API — 55 testes
+# API — 64 testes
 docker compose exec api vendor/bin/phpunit
 
-# Worker — 29 testes (39 casos contando os subtestes)
+# Worker — 31 testes
 docker run --rm -v "$PWD/worker:/src" -w /src golang:1.23-alpine \
   sh -c "apk add --no-cache ffmpeg && go test ./... -cover"
 ```
@@ -210,7 +242,7 @@ Cobertura medida na última execução:
 
 | Módulo | Cobertura |
 |---|---|
-| API (linhas) | **86,67%** |
+| API (linhas) | **83,5%** |
 | `worker/internal/config` | **100%** |
 | `worker/internal/domain` | **90,9%** |
 | `worker/internal/usecase` | **86,5%** |
@@ -232,7 +264,7 @@ storage reais e são exercitados pelo `smoke-test.sh` no job de integração do 
 │   │   ├── Services/       regras de aplicação
 │   │   └── Support/        emissão e validação de JWT
 │   ├── docker/             Dockerfile de dev, de produção e config do nginx
-│   └── tests/              55 testes (unitários e de feature)
+│   └── tests/              64 testes (unitários e de feature)
 ├── worker/                 Worker Go (Clean Architecture)
 │   ├── cmd/worker/         composition root
 │   └── internal/
