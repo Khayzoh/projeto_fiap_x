@@ -100,7 +100,7 @@ ok "3 uploads aceitos com 202"
 passo "6/8 Aguardando o processamento concluir"
 for _ in $(seq 1 "$TIMEOUT_PROCESSAMENTO"); do
     CONCLUIDOS=$(curl -fsS "${BASE_URL}/videos?status=COMPLETED" \
-        -H "Authorization: Bearer ${TOKEN}" | grep -o '"status":"COMPLETED"' | wc -l)
+        -H "Authorization: Bearer ${TOKEN}" | { grep -o '"status":"COMPLETED"' || true; } | wc -l)
     [ "$CONCLUIDOS" -ge 3 ] && break
     sleep 1
 done
@@ -122,7 +122,7 @@ URL=$(curl -fsS "${BASE_URL}/videos/${VIDEO_ID}/download" \
 curl -fsS "$URL" -o "${TMP_DIR}/frames.zip" || falhar "download do ZIP falhou"
 unzip -tq "${TMP_DIR}/frames.zip" > /dev/null || falhar "ZIP baixado esta corrompido"
 
-FRAMES=$(unzip -l "${TMP_DIR}/frames.zip" | grep -c '\.png' || true)
+FRAMES=$(unzip -l "${TMP_DIR}/frames.zip" | { grep -c '\.png' || true; })
 # Video de 4s a 1 fps: o ffmpeg pode arredondar, entao exigimos ao menos 4.
 [ "$FRAMES" -ge 4 ] || falhar "esperava ao menos 4 frames no ZIP, veio ${FRAMES}"
 ok "ZIP integro com ${FRAMES} frames"
@@ -135,7 +135,7 @@ curl -fsS -X POST "${BASE_URL}/videos" \
 
 for _ in $(seq 1 "$TIMEOUT_PROCESSAMENTO"); do
     FALHOS=$(curl -fsS "${BASE_URL}/videos?status=FAILED" \
-        -H "Authorization: Bearer ${TOKEN}" | grep -o '"status":"FAILED"' | wc -l)
+        -H "Authorization: Bearer ${TOKEN}" | { grep -o '"status":"FAILED"' || true; } | wc -l)
     [ "$FALHOS" -ge 1 ] && break
     sleep 1
 done
