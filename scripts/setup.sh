@@ -65,8 +65,13 @@ passo "4/7 Instalando as dependências da API"
 if [ -f api/vendor/autoload.php ]; then
     aviso "dependências já instaladas — pulando"
 else
-    docker compose run --rm --no-deps api \
-        composer install --no-interaction --prefer-dist --no-progress
+    # Roda como root e devolve a posse ao final: em Linux o diretório do clone
+    # costuma ter um uid diferente do usuário do container, e sem isso o
+    # composer não consegue escrever no volume montado.
+    docker compose run --rm --no-deps --user root api sh -c '
+        composer install --no-interaction --prefer-dist --no-progress &&
+        chown -R 1000:1000 vendor storage bootstrap/cache
+    '
     ok "dependências instaladas em api/vendor"
 fi
 

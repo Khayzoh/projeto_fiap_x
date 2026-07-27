@@ -167,10 +167,16 @@ jobs:
       # O compose monta ./api sobre /var/www/html, encobrindo o vendor/ que o
       # Dockerfile instalou na imagem. No runner o diretorio nao existe — nao e
       # versionado — e sem este passo a API sobe e responde 500 no autoload.
+      #
+      # Roda como root porque o checkout do runner pertence ao uid 1001 e o
+      # container usa o 1000: sem isso o composer nao consegue escrever no
+      # volume. O chown ao final devolve ao php-fpm o que ele precisa gravar.
       - name: Instalar as dependencias da API no volume
         run: |
-          docker compose run --rm --no-deps api \
-            composer install --no-interaction --prefer-dist --no-progress
+          docker compose run --rm --no-deps --user root api sh -c '
+            composer install --no-interaction --prefer-dist --no-progress &&
+            chown -R 1000:1000 vendor storage bootstrap/cache
+          '
           test -f api/vendor/autoload.php
 
       - name: Subir os servicos
