@@ -93,8 +93,8 @@ Stack alinhada à recomendação do enunciado: **Docker + Kubernetes**, **Rabbit
 dentro dos containers — nada mais precisa estar instalado na máquina.
 
 ```bash
-git clone https://gitlab.com/kaueoscar/fase_5_fiap_x.git
-cd fase_5_fiap_x
+git clone https://github.com/Khayzoh/projeto_fiap_x.git
+cd projeto_fiap_x
 
 bash scripts/setup.sh
 ```
