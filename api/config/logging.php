@@ -1,5 +1,6 @@
 <?php
 
+use App\Logging\JsonFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -102,6 +103,25 @@ return [
                 'stream' => 'php://stderr',
             ],
             'formatter' => env('LOG_STDERR_FORMATTER'),
+            'processors' => [PsrLogMessageProcessor::class],
+        ],
+
+        /*
+         * Log estruturado em JSON, uma linha por evento, escrito em stdout.
+         *
+         * Em container o log nao vai para arquivo: quem coleta e o runtime
+         * (docker logs, Fluent Bit no Kubernetes). O formato JSON e o mesmo
+         * emitido pelo worker Go, o que permite correlacionar uma requisicao
+         * entre os dois servicos pelo campo correlation_id.
+         */
+        'json' => [
+            'driver' => 'monolog',
+            'level' => env('LOG_LEVEL', 'debug'),
+            'handler' => StreamHandler::class,
+            'handler_with' => [
+                'stream' => 'php://stdout',
+            ],
+            'tap' => [JsonFormatter::class],
             'processors' => [PsrLogMessageProcessor::class],
         ],
 
