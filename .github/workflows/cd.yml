@@ -66,12 +66,15 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.servico }}
           cache-to: type=gha,mode=max,scope=${{ matrix.servico }}
 
+      # Trivy como container, e nao via action: uma tag de action renomeada
+      # derruba o job antes de rodar qualquer passo.
       - name: Varredura da imagem publicada
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.servico }}:${{ steps.meta.outputs.tag }}
-          severity: CRITICAL
-          exit-code: "0"
+        run: |
+          docker run --rm aquasec/trivy:latest image \
+            --severity CRITICAL \
+            --no-progress \
+            --exit-code 0 \
+            "${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.servico }}:${{ steps.meta.outputs.tag }}"
 
   # ---------------------------------------------------------------------------
   deploy:

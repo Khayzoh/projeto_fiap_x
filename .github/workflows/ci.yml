@@ -158,12 +158,21 @@ jobs:
 
       # Prometheus e Grafana nao participam do teste de fumaca e competiriam por
       # CPU e memoria com o que importa aqui.
-      - name: Subir a stack e aguardar ficar pronta
+      #
+      # Build e subida ficam em passos separados para que a aba de execucao
+      # aponte exatamente onde parou, em vez de um passo unico e opaco.
+      - name: Construir as imagens
+        run: docker compose build api worker
+
+      - name: Subir os servicos
         run: |
-          docker compose up -d --build \
+          docker compose up -d \
             postgres redis rabbitmq minio minio-init mailpit \
             api nginx api-consumer worker
+          docker compose ps
 
+      - name: Aguardar a API responder
+        run: |
           for tentativa in $(seq 1 90); do
             if curl -fsS http://localhost:8080/api/health > /dev/null 2>&1; then
               echo "API no ar apos $((tentativa * 5))s"
@@ -171,11 +180,14 @@ jobs:
             fi
             sleep 5
           done
-
           echo "::error::A API nao respondeu em 7 minutos"
-          docker compose ps
-          docker compose logs --tail 150
           exit 1
+
+      - name: Diagnostico se a API nao subiu
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --tail 120 api nginx postgres rabbitmq minio
 
       - name: Aplicar migrations
         run: docker compose exec -T api php artisan migrate --force
@@ -208,40 +220,36 @@ jobs:
   seguranca:
     name: Varredura de vulnerabilidades
     runs-on: ubuntu-latest
-    # Sem esta permissao o job falha logo na preparacao: publicar o relatorio
-    # na aba Security exige escrita em security-events.
     permissions:
       contents: read
-      security-events: write
 
     steps:
       - uses: actions/checkout@v4
 
+      # Trivy executado direto como container, sem action de terceiro: uma tag
+      # de action que muda de nome derruba o job antes de rodar qualquer passo,
+      # e a varredura não depende de nada além da imagem oficial.
+      # legacy/ é o projeto recebido, preservado como referência histórica: não
+      # é compilado nem executado. vendor/ traz dependências de desenvolvimento
+      # e até requisitos Python da documentação de bibliotecas de teste.
+      # Varrer os dois enche o relatório de achados que não representam risco e
+      # escondem os que representam.
       - name: Trivy no sistema de arquivos
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          severity: CRITICAL,HIGH
-          # Nao bloqueia o merge: o relatorio e informativo.
-          exit-code: "0"
-          format: sarif
-          output: trivy-results.sarif
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src aquasec/trivy:latest fs \
+            --scanners vuln,secret \
+            --severity CRITICAL,HIGH \
+            --skip-dirs legacy \
+            --skip-dirs api/vendor \
+            --no-progress \
+            --exit-code 0 \
+            --format table \
+            . | tee trivy-report.txt
 
-      - name: Publicar resultado
-        uses: github/codeql-action/upload-sarif@v3
-        # A publicacao depende do Code Scanning estar habilitado no repositorio.
-        # Se nao estiver, o relatorio segue disponivel como artefato abaixo, e a
-        # varredura em si nao deve derrubar o pipeline por causa disso.
-        continue-on-error: true
-        if: always()
-        with:
-          sarif_file: trivy-results.sarif
-
-      - name: Guardar o relatorio como artefato
+      - name: Guardar o relatorio
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: trivy-results
-          path: trivy-results.sarif
+          name: trivy-report
+          path: trivy-report.txt
           if-no-files-found: ignore
