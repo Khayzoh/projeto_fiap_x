@@ -102,6 +102,7 @@ docker compose exec api php artisan migrate --force
 
 | Serviço | URL | Credenciais |
 |---|---|---|
+| **Interface web** | **http://localhost:8080** | crie a conta na própria tela |
 | API | http://localhost:8080/api | — |
 | RabbitMQ | http://localhost:15672 | `fiapx` / `fiapx` |
 | MinIO | http://localhost:9001 | `fiapxadmin` / `fiapxadmin123` |
@@ -130,7 +131,15 @@ As réplicas dividem a fila automaticamente — o RabbitMQ entrega no máximo
 
 ---
 
-## Usando a API
+## Usando o sistema
+
+A forma mais direta é pela **interface web em http://localhost:8080** — cadastro,
+envio por arrastar e soltar, acompanhamento do status atualizando sozinho e
+download do ZIP. É a mesma API REST por trás, consumida do navegador.
+
+![Interface do sistema](docs/img/interface.png)
+
+### Pela API
 
 ```bash
 # 1. Cadastro
