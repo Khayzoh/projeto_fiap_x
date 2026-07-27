@@ -6,7 +6,8 @@
     <meta name="color-scheme" content="light dark">
     <title>FIAP X · Processamento de vídeos</title>
     <link rel="stylesheet" href="{{ asset('assets/app.css') }}">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='2' fill='%232A3D7C'/><rect x='3' y='5' width='10' height='6' fill='%23fff'/><rect x='3' y='3' width='2' height='1.2' fill='%23fff'/><rect x='7' y='3' width='2' height='1.2' fill='%23fff'/><rect x='11' y='3' width='2' height='1.2' fill='%23fff'/></svg>">
+    {{-- Preto com o magenta da marca, como a assinatura visual da FIAP. --}}
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='5' fill='%23000'/><path d='M9 9 L23 23 M23 9 L9 23' stroke='%23ED145B' stroke-width='3.4' stroke-linecap='round'/></svg>">
 </head>
 <body>
 
@@ -14,23 +15,20 @@
 <div id="auth" class="auth" hidden>
     <div class="auth__panel">
         <div class="auth__brand">
-            <svg class="mark" viewBox="0 0 28 28" aria-hidden="true">
-                <rect x="1" y="7" width="26" height="14" rx="1.5" class="mark__body"></rect>
-                <g class="mark__perf">
-                    <rect x="3" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="9.3" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="15.6" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="21.9" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="3" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="9.3" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="15.6" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="21.9" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                </g>
-            </svg>
-            <div>
-                <strong>FIAP X</strong>
-                <span>Processamento de vídeos</span>
-            </div>
+            {{-- Logotipo oficial da FIAP, em vetor. A cor da marca não acompanha
+                 o tema da interface: magenta em fundo claro ou escuro. --}}
+            <span class="logo">
+                <svg viewBox="0 0 101 25" role="img" aria-label="FIAP">
+                    <path d="M30.7193 0H28.709V24.8265H30.7193V0Z"/>
+                    <path d="M17.26 11.8854H7.47571V13.5916H17.26V11.8854Z"/>
+                    <path d="M0 0V24.8265H2.01026V1.70619H22.7725V0H0Z"/>
+                    <path d="M90.9643 0.101257H75.0078V24.9277H77.0181V15.6738H77.0338V13.9677H77.0181V1.80745H90.8229C95.6758 1.80745 98.9896 3.86065 98.9896 7.79356V7.86586C98.9896 11.553 95.5973 13.9677 90.5873 13.9677H84.2739V15.6738H90.4774C96.0999 15.6738 101 12.9844 101 7.76465V7.69235C100.968 2.89189 96.8851 0.101257 90.9643 0.101257Z"/>
+                    <path d="M63.3389 13.9676L53.9943 0H52.0626L35.4151 25H37.4882L52.9892 2.02429L61.0774 13.9676H63.3389Z"/>
+                    <path d="M66.4172 18.5511H64.187L68.5374 25H70.7361L66.4172 18.5511Z"/>
+                </svg>
+                <b class="logo__x">X</b>
+            </span>
+            <p class="auth__sub">Processamento de vídeos</p>
         </div>
 
         <div class="auth__tabs" role="tablist">
@@ -75,20 +73,17 @@
 
     <header class="topbar">
         <div class="topbar__brand">
-            <svg class="mark mark--sm" viewBox="0 0 28 28" aria-hidden="true">
-                <rect x="1" y="7" width="26" height="14" rx="1.5" class="mark__body"></rect>
-                <g class="mark__perf">
-                    <rect x="3" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="9.3" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="15.6" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="21.9" y="3.2" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="3" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="9.3" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="15.6" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                    <rect x="21.9" y="22.6" width="3.4" height="2.2" rx=".4"></rect>
-                </g>
-            </svg>
-            <span>FIAP X</span>
+            <span class="logo logo--sm">
+                <svg viewBox="0 0 101 25" role="img" aria-label="FIAP">
+                    <path d="M30.7193 0H28.709V24.8265H30.7193V0Z"/>
+                    <path d="M17.26 11.8854H7.47571V13.5916H17.26V11.8854Z"/>
+                    <path d="M0 0V24.8265H2.01026V1.70619H22.7725V0H0Z"/>
+                    <path d="M90.9643 0.101257H75.0078V24.9277H77.0181V15.6738H77.0338V13.9677H77.0181V1.80745H90.8229C95.6758 1.80745 98.9896 3.86065 98.9896 7.79356V7.86586C98.9896 11.553 95.5973 13.9677 90.5873 13.9677H84.2739V15.6738H90.4774C96.0999 15.6738 101 12.9844 101 7.76465V7.69235C100.968 2.89189 96.8851 0.101257 90.9643 0.101257Z"/>
+                    <path d="M63.3389 13.9676L53.9943 0H52.0626L35.4151 25H37.4882L52.9892 2.02429L61.0774 13.9676H63.3389Z"/>
+                    <path d="M66.4172 18.5511H64.187L68.5374 25H70.7361L66.4172 18.5511Z"/>
+                </svg>
+                <b class="logo__x">X</b>
+            </span>
         </div>
 
         <div class="topbar__right">

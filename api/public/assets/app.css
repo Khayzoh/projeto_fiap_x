@@ -1,39 +1,46 @@
 /* =========================================================================
    FIAP X — interface do sistema de processamento de vídeos
 
+   Identidade visual da FIAP: magenta #ED145B sobre preto, tal como a marca
+   institucional. O magenta fica reservado à marca e às ações; as cores de
+   estado (fila, processando, pronto, falha) são independentes dele para não
+   competirem — o vermelho de falha, em especial, é deslocado para um tom
+   mais quente, de modo a nunca ser confundido com o rosa da marca.
+
    Direção: ferramenta de trabalho, não página de marketing. Densidade de
-   informação, tipografia monoespaçada para dados, e o azul-tinta reservado
-   à marca e às ações — as cores de estado (fila, processando, pronto, falha)
-   são independentes do acento para não competirem com ele.
+   informação e tipografia monoespaçada para os dados.
    ========================================================================= */
 
 :root {
-    --bg:            #F7F7F6;
+    --bg:            #FAFAFA;
     --surface:       #FFFFFF;
-    --surface-2:     #F2F2F0;
-    --surface-3:     #EAEAE7;
-    --border:        #E3E3E0;
-    --border-2:      #CFCFC9;
-    --text:          #1B1C1F;
-    --text-2:        #6A6C73;
-    --text-3:        #8E9098;
+    --surface-2:     #F4F4F5;
+    --surface-3:     #EAEAEC;
+    --border:        #E4E4E7;
+    --border-2:      #CFCFD4;
+    --text:          #18181B;
+    --text-2:        #61616B;
+    --text-3:        #8A8A93;
 
-    --accent:        #2A3D7C;
-    --accent-hover:  #223165;
-    --accent-soft:   #EAEEF8;
+    /* Sobre fundo claro, o magenta da marca é escurecido para manter
+       legibilidade em texto pequeno; o tom original volta no hover. */
+    --accent:        #C9004B;
+    --accent-hover:  #ED145B;
+    --accent-soft:   #FDE8F0;
     --on-accent:     #FFFFFF;
+    --brand:         #ED145B;
 
-    --queued:        #6A6C73;
-    --queued-bg:     #EDEDEA;
+    --queued:        #61616B;
+    --queued-bg:     #EDEDEF;
     --running:       #8A5A06;
     --running-bg:    #FBF0DC;
-    --done:          #226B45;
-    --done-bg:       #E4F2EA;
-    --failed:        #9E3A37;
-    --failed-bg:     #FAE9E8;
+    --done:          #1F6B44;
+    --done-bg:       #E3F2E9;
+    --failed:        #A33710;
+    --failed-bg:     #FBEBE4;
 
-    --shadow-1:      0 1px 2px rgba(20, 22, 28, .06);
-    --shadow-2:      0 4px 16px -6px rgba(20, 22, 28, .18);
+    --shadow-1:      0 1px 2px rgba(18, 18, 22, .06);
+    --shadow-2:      0 4px 16px -6px rgba(18, 18, 22, .18);
 
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", "Liberation Mono", monospace;
@@ -43,64 +50,68 @@
     --r-lg: 8px;
 }
 
+/* Tema escuro: o preto da identidade institucional. É aqui que a marca
+   aparece como no material da FIAP — magenta sobre preto. */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-        --bg:           #131417;
-        --surface:      #1A1B1F;
-        --surface-2:    #212227;
-        --surface-3:    #292B31;
-        --border:       #2B2D33;
-        --border-2:     #3B3E46;
-        --text:         #E9E9EC;
-        --text-2:       #9A9DA6;
-        --text-3:       #7A7D86;
+        --bg:           #0A0A0C;
+        --surface:      #131316;
+        --surface-2:    #1A1A1E;
+        --surface-3:    #232328;
+        --border:       #26262C;
+        --border-2:     #38383F;
+        --text:         #F2F2F4;
+        --text-2:       #A0A0A9;
+        --text-3:       #75757E;
 
-        --accent:       #8CA2EA;
-        --accent-hover: #A3B5F0;
-        --accent-soft:  #1E2434;
-        --on-accent:    #12151F;
+        --accent:       #ED145B;
+        --accent-hover: #FF3F7C;
+        --accent-soft:  #2B0B18;
+        --on-accent:    #FFFFFF;
+        --brand:        #ED145B;
 
-        --queued:       #9A9DA6;
-        --queued-bg:    #26282E;
-        --running:      #E0A64B;
-        --running-bg:   #2E2617;
-        --done:         #5FBE8A;
-        --done-bg:      #16281F;
-        --failed:       #E58581;
-        --failed-bg:    #2E1C1C;
+        --queued:       #A0A0A9;
+        --queued-bg:    #232328;
+        --running:      #E3A94E;
+        --running-bg:   #2C2415;
+        --done:         #58C08A;
+        --done-bg:      #12271C;
+        --failed:       #F08A5D;
+        --failed-bg:    #2C1A11;
 
-        --shadow-1:     0 1px 2px rgba(0, 0, 0, .4);
-        --shadow-2:     0 4px 16px -6px rgba(0, 0, 0, .7);
+        --shadow-1:     0 1px 2px rgba(0, 0, 0, .5);
+        --shadow-2:     0 4px 18px -6px rgba(0, 0, 0, .8);
     }
 }
 
 :root[data-theme="dark"] {
-    --bg:           #131417;
-    --surface:      #1A1B1F;
-    --surface-2:    #212227;
-    --surface-3:    #292B31;
-    --border:       #2B2D33;
-    --border-2:     #3B3E46;
-    --text:         #E9E9EC;
-    --text-2:       #9A9DA6;
-    --text-3:       #7A7D86;
+    --bg:           #0A0A0C;
+    --surface:      #131316;
+    --surface-2:    #1A1A1E;
+    --surface-3:    #232328;
+    --border:       #26262C;
+    --border-2:     #38383F;
+    --text:         #F2F2F4;
+    --text-2:       #A0A0A9;
+    --text-3:       #75757E;
 
-    --accent:       #8CA2EA;
-    --accent-hover: #A3B5F0;
-    --accent-soft:  #1E2434;
-    --on-accent:    #12151F;
+    --accent:       #ED145B;
+    --accent-hover: #FF3F7C;
+    --accent-soft:  #2B0B18;
+    --on-accent:    #FFFFFF;
+    --brand:        #ED145B;
 
-    --queued:       #9A9DA6;
-    --queued-bg:    #26282E;
-    --running:      #E0A64B;
-    --running-bg:   #2E2617;
-    --done:         #5FBE8A;
-    --done-bg:      #16281F;
-    --failed:       #E58581;
-    --failed-bg:    #2E1C1C;
+    --queued:       #A0A0A9;
+    --queued-bg:    #232328;
+    --running:      #E3A94E;
+    --running-bg:   #2C2415;
+    --done:         #58C08A;
+    --done-bg:      #12271C;
+    --failed:       #F08A5D;
+    --failed-bg:    #2C1A11;
 
-    --shadow-1:     0 1px 2px rgba(0, 0, 0, .4);
-    --shadow-2:     0 4px 16px -6px rgba(0, 0, 0, .7);
+    --shadow-1:     0 1px 2px rgba(0, 0, 0, .5);
+    --shadow-2:     0 4px 18px -6px rgba(0, 0, 0, .8);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -138,10 +149,29 @@ ul { list-style: none; }
 
 /* ---------------------------------------------------------------- marca -- */
 
-.mark { width: 30px; height: 30px; flex-shrink: 0; }
-.mark--sm { width: 22px; height: 22px; }
-.mark__body { fill: var(--accent); }
-.mark__perf rect { fill: var(--border-2); }
+.logo { display: inline-flex; align-items: center; gap: .42rem; }
+
+/* O magenta institucional não acompanha o tema: a marca é a mesma em fundo
+   claro ou escuro. */
+.logo svg {
+    height: 22px;
+    width: auto;
+    fill: var(--brand);
+    display: block;
+}
+.logo--sm svg { height: 16px; }
+
+/* O "X" do nome do produto fica ao lado do logotipo, em peso leve, sem
+   tentar imitar a tipografia da marca. A altura acompanha a do logotipo
+   para os dois lerem como uma assinatura só. */
+.logo__x {
+    font-size: 20px;
+    font-weight: 300;
+    line-height: 22px;
+    letter-spacing: .01em;
+    color: var(--text);
+}
+.logo--sm .logo__x { font-size: 15px; line-height: 16px; }
 
 /* ------------------------------------------------------------ botões ----- */
 
@@ -219,9 +249,8 @@ ul { list-style: none; }
     gap: 1.25rem;
 }
 
-.auth__brand { display: flex; align-items: center; gap: .7rem; }
-.auth__brand strong { display: block; font-size: 1.05rem; letter-spacing: -.01em; }
-.auth__brand span { display: block; font-size: .8rem; color: var(--text-2); }
+.auth__brand { display: flex; flex-direction: column; gap: .3rem; }
+.auth__sub { font-size: .82rem; color: var(--text-2); }
 
 .auth__tabs {
     display: grid;
@@ -311,13 +340,7 @@ ul { list-style: none; }
     border-bottom: 1px solid var(--border);
 }
 
-.topbar__brand {
-    display: flex;
-    align-items: center;
-    gap: .55rem;
-    font-weight: 600;
-    letter-spacing: -.01em;
-}
+.topbar__brand { display: flex; align-items: center; }
 
 .topbar__right { display: flex; align-items: center; gap: .7rem; }
 
