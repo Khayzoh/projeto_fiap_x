@@ -80,10 +80,10 @@ Ver [ADR-002](docs/architecture/ADR-002-worker-em-go.md).
 | **Persistir os dados** | PostgreSQL com o schema versionado | [`schema.sql`](database/schema.sql) |
 | Arquitetura **escalável** | Serviços sem estado, HPA de 2→20 réplicas, storage externo | [`30-hpa-ingress.yaml`](k8s/30-hpa-ingress.yaml) |
 | **Testes** de qualidade | 64 testes na API + 31 no worker, com gate de 80% no CI | [`ci.yml`](.github/workflows/ci.yml) |
-| **CI/CD** | Lint, testes, cobertura, integração ponta a ponta, build e deploy | [`.gitlab-ci.yml`](.gitlab-ci.yml) · [`.github/workflows/`](.github/workflows/) |
+| **CI/CD** | Lint, testes, cobertura, integração ponta a ponta, build e deploy | [`.github/workflows/`](.github/workflows/) |
 
 Stack alinhada à recomendação do enunciado: **Docker + Kubernetes**, **RabbitMQ**,
-**PostgreSQL + Redis**, **Prometheus + Grafana**, com pipeline para GitLab CI e GitHub Actions.
+**PostgreSQL + Redis**, **Prometheus + Grafana** e **GitHub Actions**.
 
 ---
 
