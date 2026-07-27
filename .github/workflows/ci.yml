@@ -142,6 +142,9 @@ jobs:
     name: Teste de integracao ponta a ponta
     runs-on: ubuntu-latest
     needs: [worker, api]
+    # O runner tem 2 vCPUs: construir as imagens e esperar RabbitMQ e MinIO
+    # ficarem saudaveis leva vários minutos antes de o teste começar.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -149,23 +152,29 @@ jobs:
       - name: Preparar configuracao
         run: |
           cp .env.example .env
-          sed -i "s|APP_KEY=.*|APP_KEY=base64:$(head -c 32 /dev/urandom | base64)|" .env
-          sed -i "s|JWT_SECRET=.*|JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n')|" .env
+          sed -i "s|^APP_KEY=.*|APP_KEY=base64:$(head -c 32 /dev/urandom | base64 | tr -d '\n')|" .env
+          sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n')|" .env
+          grep -c '^APP_KEY=base64:' .env
 
-      - name: Subir a stack
-        run: docker compose up -d --build
-
-      - name: Aguardar a API responder
+      # Prometheus e Grafana nao participam do teste de fumaca e competiriam por
+      # CPU e memoria com o que importa aqui.
+      - name: Subir a stack e aguardar ficar pronta
         run: |
-          for tentativa in $(seq 1 60); do
+          docker compose up -d --build \
+            postgres redis rabbitmq minio minio-init mailpit \
+            api nginx api-consumer worker
+
+          for tentativa in $(seq 1 90); do
             if curl -fsS http://localhost:8080/api/health > /dev/null 2>&1; then
-              echo "API no ar apos ${tentativa} tentativas"
+              echo "API no ar apos $((tentativa * 5))s"
               exit 0
             fi
             sleep 5
           done
-          echo "::error::A API nao respondeu no tempo esperado"
-          docker compose logs --tail 100
+
+          echo "::error::A API nao respondeu em 7 minutos"
+          docker compose ps
+          docker compose logs --tail 150
           exit 1
 
       - name: Aplicar migrations
@@ -199,6 +208,11 @@ jobs:
   seguranca:
     name: Varredura de vulnerabilidades
     runs-on: ubuntu-latest
+    # Sem esta permissao o job falha logo na preparacao: publicar o relatorio
+    # na aba Security exige escrita em security-events.
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - uses: actions/checkout@v4
@@ -209,13 +223,25 @@ jobs:
           scan-type: fs
           scan-ref: .
           severity: CRITICAL,HIGH
-          # Nao bloqueia o merge: o relatorio vai para a aba Security.
+          # Nao bloqueia o merge: o relatorio e informativo.
           exit-code: "0"
           format: sarif
           output: trivy-results.sarif
 
       - name: Publicar resultado
         uses: github/codeql-action/upload-sarif@v3
+        # A publicacao depende do Code Scanning estar habilitado no repositorio.
+        # Se nao estiver, o relatorio segue disponivel como artefato abaixo, e a
+        # varredura em si nao deve derrubar o pipeline por causa disso.
+        continue-on-error: true
         if: always()
         with:
           sarif_file: trivy-results.sarif
+
+      - name: Guardar o relatorio como artefato
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          if-no-files-found: ignore
