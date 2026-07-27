@@ -32,13 +32,17 @@ class RabbitMqConnection
             return $this->channel;
         }
 
+        // O heartbeat precisa ser folgado em relação ao tempo que o consumidor
+        // passa bloqueado em wait(): enquanto está parado ali, a biblioteca não
+        // envia batimento. Com wait de 10s e heartbeat de 60s sobra margem
+        // suficiente para o servidor nunca dar a conexão como morta.
         $this->connection = new AMQPStreamConnection(
             $this->config['host'],
             $this->config['port'],
             $this->config['user'],
             $this->config['password'],
             $this->config['vhost'],
-            heartbeat: 30,
+            heartbeat: (int) ($this->config['heartbeat'] ?? 60),
         );
 
         $this->channel = $this->connection->channel();

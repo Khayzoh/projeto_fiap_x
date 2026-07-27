@@ -57,13 +57,16 @@ func New(d Deps) *ProcessVideo {
 
 // Execute processa um job. O erro devolvido informa ao consumidor se a mensagem
 // deve ser reenfileirada (erro transitorio) ou descartada para a DLQ (permanente).
-func (p *ProcessVideo) Execute(ctx context.Context, job domain.Job) error {
+//
+// Em caso de sucesso devolve tambem o resultado, para que a camada externa possa
+// instrumenta-lo sem que o dominio precise conhecer o coletor de metricas.
+func (p *ProcessVideo) Execute(ctx context.Context, job domain.Job) (*domain.Result, error) {
 	started := time.Now()
 
 	if err := job.Validate(); err != nil {
 		// Job malformado nunca melhora com retentativa.
 		p.fail(ctx, job, err, "job invalido")
-		return domain.Permanent(err)
+		return nil, domain.Permanent(err)
 	}
 
 	log := map[string]any{
@@ -79,13 +82,13 @@ func (p *ProcessVideo) Execute(ctx context.Context, job domain.Job) error {
 	jobDir := filepath.Join(p.workDir, job.VideoID)
 	framesDir := filepath.Join(jobDir, "frames")
 	if err := os.MkdirAll(framesDir, 0o755); err != nil {
-		return fmt.Errorf("criar diretorio de trabalho: %w", err)
+		return nil, fmt.Errorf("criar diretorio de trabalho: %w", err)
 	}
 	defer os.RemoveAll(jobDir)
 
 	videoPath := filepath.Join(jobDir, sanitizeName(job.Filename))
 	if err := p.storage.Download(ctx, job.ObjectKey, videoPath); err != nil {
-		return fmt.Errorf("baixar video %s: %w", job.ObjectKey, err)
+		return nil, fmt.Errorf("baixar video %s: %w", job.ObjectKey, err)
 	}
 
 	frames, err := p.extractor.Extract(ctx, videoPath, framesDir, job.EffectiveFPS())
@@ -94,25 +97,25 @@ func (p *ProcessVideo) Execute(ctx context.Context, job domain.Job) error {
 		wrapped := fmt.Errorf("%w: %v", domain.ErrExtractionFailed, err)
 		if p.isLastAttempt(job) {
 			p.fail(ctx, job, wrapped, "extracao de frames falhou")
-			return domain.Permanent(wrapped)
+			return nil, domain.Permanent(wrapped)
 		}
-		return wrapped
+		return nil, wrapped
 	}
 
 	if len(frames) == 0 {
 		p.fail(ctx, job, domain.ErrNoFramesFound, "video sem frames")
-		return domain.Permanent(domain.ErrNoFramesFound)
+		return nil, domain.Permanent(domain.ErrNoFramesFound)
 	}
 
 	zipPath := filepath.Join(jobDir, fmt.Sprintf("frames_%s.zip", job.VideoID))
 	if err := p.archiver.Archive(frames, zipPath); err != nil {
-		return fmt.Errorf("compactar frames: %w", err)
+		return nil, fmt.Errorf("compactar frames: %w", err)
 	}
 
 	zipKey := fmt.Sprintf("outputs/%s/frames.zip", job.VideoID)
 	size, err := p.storage.Upload(ctx, zipPath, zipKey, "application/zip")
 	if err != nil {
-		return fmt.Errorf("enviar zip: %w", err)
+		return nil, fmt.Errorf("enviar zip: %w", err)
 	}
 
 	result := domain.Result{
@@ -128,13 +131,14 @@ func (p *ProcessVideo) Execute(ctx context.Context, job domain.Job) error {
 	if err := p.publisher.PublishCompleted(ctx, result, job.CorrelationID); err != nil {
 		// O ZIP ja esta no storage; falhar aqui apenas reenfileira o job,
 		// e o reprocessamento sobrescreve o mesmo objeto (operacao idempotente).
-		return fmt.Errorf("publicar conclusao: %w", err)
+		return nil, fmt.Errorf("publicar conclusao: %w", err)
 	}
 
 	log["frame_count"] = result.FrameCount
 	log["duration_ms"] = result.DurationMS
 	p.logger.Info("processamento concluido", log)
-	return nil
+
+	return &result, nil
 }
 
 // isLastAttempt informa se o job ja esgotou o orcamento de retentativas.

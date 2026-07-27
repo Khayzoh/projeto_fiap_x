@@ -151,7 +151,7 @@ func jobValido() domain.Job {
 func TestExecuteFluxoFeliz(t *testing.T) {
 	c := montar(t)
 
-	if err := c.proc.Execute(context.Background(), jobValido()); err != nil {
+	if _, err := c.proc.Execute(context.Background(), jobValido()); err != nil {
 		t.Fatalf("nao esperava erro: %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestExecuteFluxoFeliz(t *testing.T) {
 func TestExecuteLimpaDiretorioDeTrabalho(t *testing.T) {
 	c := montar(t)
 
-	if err := c.proc.Execute(context.Background(), jobValido()); err != nil {
+	if _, err := c.proc.Execute(context.Background(), jobValido()); err != nil {
 		t.Fatalf("nao esperava erro: %v", err)
 	}
 
@@ -193,7 +193,7 @@ func TestExecuteLimpaDiretorioDeTrabalho(t *testing.T) {
 func TestExecuteJobInvalidoEhPermanente(t *testing.T) {
 	c := montar(t)
 
-	err := c.proc.Execute(context.Background(), domain.Job{VideoID: "", UserID: 0})
+	_, err := c.proc.Execute(context.Background(), domain.Job{VideoID: "", UserID: 0})
 
 	if !domain.IsPermanent(err) {
 		t.Fatalf("job invalido deveria ser falha permanente, veio %v", err)
@@ -206,7 +206,7 @@ func TestExecuteJobInvalidoEhPermanente(t *testing.T) {
 func TestExecuteSemFramesEhPermanente(t *testing.T) {
 	c := montar(t, func(c *cenario) { c.extractor.frames = nil })
 
-	err := c.proc.Execute(context.Background(), jobValido())
+	_, err := c.proc.Execute(context.Background(), jobValido())
 
 	if !domain.IsPermanent(err) {
 		t.Fatalf("video sem frames deveria ser falha permanente, veio %v", err)
@@ -225,7 +225,7 @@ func TestExecuteFalhaDeExtracaoRetentaAntesDeDesistir(t *testing.T) {
 	job := jobValido()
 	job.Attempt = 0
 
-	err := c.proc.Execute(context.Background(), job)
+	_, err := c.proc.Execute(context.Background(), job)
 
 	if err == nil {
 		t.Fatal("esperava erro")
@@ -244,7 +244,7 @@ func TestExecuteFalhaDeExtracaoNaUltimaTentativaNotifica(t *testing.T) {
 	job := jobValido()
 	job.Attempt = 2 // MaxRetry = 3, entao esta e a ultima chance
 
-	err := c.proc.Execute(context.Background(), job)
+	_, err := c.proc.Execute(context.Background(), job)
 
 	if !domain.IsPermanent(err) {
 		t.Fatalf("esgotadas as tentativas, a falha deve ser permanente; veio %v", err)
@@ -260,7 +260,7 @@ func TestExecuteFalhaDeExtracaoNaUltimaTentativaNotifica(t *testing.T) {
 func TestExecuteFalhaDeDownloadEhTransitoria(t *testing.T) {
 	c := montar(t, func(c *cenario) { c.storage.downloadErr = errors.New("minio indisponivel") })
 
-	err := c.proc.Execute(context.Background(), jobValido())
+	_, err := c.proc.Execute(context.Background(), jobValido())
 
 	if err == nil {
 		t.Fatal("esperava erro")
@@ -274,7 +274,7 @@ func TestExecuteFalhaDeDownloadEhTransitoria(t *testing.T) {
 func TestExecuteFalhaDeUploadEhTransitoria(t *testing.T) {
 	c := montar(t, func(c *cenario) { c.storage.uploadErr = errors.New("timeout no upload") })
 
-	err := c.proc.Execute(context.Background(), jobValido())
+	_, err := c.proc.Execute(context.Background(), jobValido())
 
 	if err == nil || domain.IsPermanent(err) {
 		t.Fatalf("falha de upload deveria ser transitoria, veio %v", err)
@@ -290,7 +290,7 @@ func TestExecuteRespeitaFPSCustomizado(t *testing.T) {
 	job := jobValido()
 	job.FPS = 10
 
-	if err := c.proc.Execute(context.Background(), job); err != nil {
+	if _, err := c.proc.Execute(context.Background(), job); err != nil {
 		t.Fatalf("nao esperava erro: %v", err)
 	}
 	if c.extractor.fpsUsed != 10 {
@@ -305,10 +305,42 @@ func TestExecuteNomeDeArquivoComTravessiaDeDiretorio(t *testing.T) {
 	// Nome malicioso vindo do upload nao pode escrever fora do diretorio do job.
 	job.Filename = "../../../etc/passwd"
 
-	if err := c.proc.Execute(context.Background(), job); err != nil {
+	if _, err := c.proc.Execute(context.Background(), job); err != nil {
 		t.Fatalf("nao esperava erro: %v", err)
 	}
 	if c.storage.downloaded != job.ObjectKey {
 		t.Errorf("esperava download da chave %s, veio %s", job.ObjectKey, c.storage.downloaded)
+	}
+}
+
+func TestExecuteDevolveOResultadoNoSucesso(t *testing.T) {
+	c := montar(t)
+
+	// O resultado sobe para a camada externa poder instrumentar a contagem de
+	// frames sem que o dominio conheca o coletor de metricas.
+	resultado, err := c.proc.Execute(context.Background(), jobValido())
+	if err != nil {
+		t.Fatalf("nao esperava erro: %v", err)
+	}
+	if resultado == nil {
+		t.Fatal("esperava o resultado do processamento, veio nil")
+	}
+	if resultado.FrameCount != 2 {
+		t.Errorf("esperava 2 frames no resultado, veio %d", resultado.FrameCount)
+	}
+	if resultado.VideoID != "video-123" {
+		t.Errorf("resultado veio com o video errado: %s", resultado.VideoID)
+	}
+}
+
+func TestExecuteNaoDevolveResultadoQuandoFalha(t *testing.T) {
+	c := montar(t, func(c *cenario) { c.extractor.frames = nil })
+
+	resultado, err := c.proc.Execute(context.Background(), jobValido())
+	if err == nil {
+		t.Fatal("esperava erro")
+	}
+	if resultado != nil {
+		t.Fatal("nao deve haver resultado quando o processamento falha")
 	}
 }

@@ -103,12 +103,15 @@ func instrument(p *usecase.ProcessVideo, m *observability.Metrics) messaging.Han
 		defer m.InFlight.Dec()
 
 		started := time.Now()
-		err := p.Execute(ctx, job)
+		resultado, err := p.Execute(ctx, job)
 		m.Duration.Observe(time.Since(started).Seconds())
 
 		switch {
 		case err == nil:
 			m.Processed.WithLabelValues("sucesso").Inc()
+			if resultado != nil {
+				m.FramesZip.Observe(float64(resultado.FrameCount))
+			}
 		case domain.IsPermanent(err):
 			m.Processed.WithLabelValues("falha_permanente").Inc()
 		default:

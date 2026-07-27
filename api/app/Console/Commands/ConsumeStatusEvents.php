@@ -8,6 +8,7 @@ use App\Messaging\RabbitMqConnection;
 use App\Services\VideoStatusUpdater;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use PhpAmqpLib\Exception\AMQPExceptionInterface;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 
@@ -27,11 +28,42 @@ class ConsumeStatusEvents extends Command
 
     private int $processadas = 0;
 
+    private bool $encerrar = false;
+
     public function handle(RabbitMqConnection $connection, VideoStatusUpdater $updater): int
     {
-        $config = config('fiapx.rabbitmq');
         $limite = (int) $this->option('max-messages');
 
+        $this->info('Consumidor de status iniciado. Aguardando eventos...');
+
+        // Laco externo de reconexao. Queda de broker, heartbeat perdido ou canal
+        // fechado nao devem derrubar o processo: reconectar aqui e mais rapido
+        // que esperar o orquestrador reiniciar o container, e evita a janela em
+        // que ninguem esta consumindo a fila.
+        while (! $this->encerrar) {
+            try {
+                $this->consumir($connection, $updater, $limite);
+            } catch (AMQPExceptionInterface $e) {
+                Log::warning('conexao com o broker perdida, reconectando', [
+                    'error' => $e->getMessage(),
+                ]);
+
+                $connection->close();
+                sleep(5);
+            }
+        }
+
+        $connection->close();
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Registra o consumidor e processa mensagens ate o canal fechar.
+     */
+    private function consumir(RabbitMqConnection $connection, VideoStatusUpdater $updater, int $limite): void
+    {
+        $config = config('fiapx.rabbitmq');
         $channel = $connection->channel();
 
         // Uma mensagem por vez: o consumo e barato e a ordem por video importa.
@@ -49,26 +81,25 @@ class ConsumeStatusEvents extends Command
 
                 $this->processadas++;
                 if ($limite > 0 && $this->processadas >= $limite) {
+                    $this->encerrar = true;
                     $message->getChannel()->basic_cancel('fiapx-api-status');
                 }
             }
         );
 
-        $this->info('Consumidor de status iniciado. Aguardando eventos...');
+        // O timeout do wait tem de ser bem menor que o heartbeat da conexao:
+        // e entre uma espera e outra que a biblioteca envia o batimento.
+        $timeout = (int) ($config['wait_timeout'] ?? 10);
 
         while ($channel->is_consuming()) {
             try {
-                $channel->wait(timeout: 30);
+                $channel->wait(timeout: $timeout);
             } catch (AMQPTimeoutException) {
-                // Timeout apenas devolve o controle: permite ao processo
-                // reagir a sinais de encerramento entre mensagens.
+                // Sem mensagem na janela: devolve o controle para o laco, o que
+                // permite ao processo reagir a sinais e manter o heartbeat.
                 continue;
             }
         }
-
-        $connection->close();
-
-        return self::SUCCESS;
     }
 
     private function handleMessage(AMQPMessage $message, VideoStatusUpdater $updater): void

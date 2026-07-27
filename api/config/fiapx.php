@@ -42,6 +42,9 @@ return [
         'user' => env('RABBITMQ_USER', 'fiapx'),
         'password' => env('RABBITMQ_PASSWORD', 'fiapx'),
         'vhost' => env('RABBITMQ_VHOST', '/'),
+        // Precisa ser bem maior que o timeout do wait() do consumidor.
+        'heartbeat' => (int) env('RABBITMQ_HEARTBEAT', 60),
+        'wait_timeout' => (int) env('RABBITMQ_WAIT_TIMEOUT', 10),
 
         // Os nomes precisam bater exatamente com worker/internal/adapter/messaging/topology.go
         'exchange' => 'fiapx.events',
